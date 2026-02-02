@@ -24,15 +24,27 @@
 > [!CAUTION]
 > This should be considered **BETA** - it is working well for me, but at the time of writing this no one else has tested it so far.
 
-While I'm pretty confident this will not break your computer, I don't know enough about Windows Drivers to be 100% sure.  Further, there is a **real risk** that your displays won't come back after a streaming sesion if there is some issue with Sunshine or the scripts - during development and testing I hit quite a few of those cases; I'm confident it shouldn't happen during normal operation anymore, but just in case it does, you can escape in a few ways:
+While I'm pretty confident this will not break your computer, I don't know enough about Windows Drivers to be 100% sure. Further, there is a real risk that your display layout won't restore properly after a streaming session if there is some issue with Sunshine or the scripts.
+
+The scripts are intended to:
+
+- Enable the virtual display device at stream start
+- Force Windows display topology to Extend (physical + virtual)
+- Optionally set the virtual display as primary for the stream (depending on your script settings)
+- Restore your saved display configuration when the stream ends
+
+
+If something goes wrong, you can escape in a few ways:
 
 - If your displays don't come back, but sunshine is still running, you can get back in the stream and fix things up:
-    - Run this command from a privileged terminal to disable the virtual display.
+    - Run this command from a privileged terminal to disable the virtual display device.:
+
     ```batch
     pnputil /disable-device /deviceid root\iddsampledriver
     ```
 
 > [!NOTE]
+>
 > If you want to be extra secure you can try to bind this command to some key combination ahead of time (make sure it runs as admin).
 >
 > To do this, create a new shortcut on Desktop (`Right Click` > `New` > `Shortcut`) and copy/paste the command above (`pnputil /disable-device /deviceid root\iddsampledriver`) in the path box.
@@ -44,20 +56,20 @@ While I'm pretty confident this will not break your computer, I don't know enoug
 > Save and close.
 
 - If you can't access the sunshine stream for whatever reason, you can try a couple of things:
-    - Open a Windows Terminal and run this command:
+    - Open a Windows Terminal and run:
     ```batch
-    DisplaySwitch 1
+    DisplaySwitch /internal
     ```
 
 > [!NOTE]
-> This should enable only your primary display, which should not be the virtual monitor, allowing you to fix things up.
+> This forces Windows to use only your internal/primary physical display. This is often enough to regain control if Windows ends up applying a bad layout.
 
 -
-    - Press `Windows + P` to get into the display selection dialogue, then press `Tab` + move around to select something different from the current setup. I recommend practicing this ahead of time if you want to go this route, just so you have an idea of what it feels like; in the broken case it should have the "second screen only" option pre-selected.
-    
-    - Connect another display to your computer - this will cause windows to try and apply a new configuration to the displays that should get signal on at least one of the real ones.
-    
-    - If you already have a second monitor, disconnect it - similar to the point above, might result in getting signal back.
+    - Press Windows + P to open the projection menu, then select PC screen only or Extend. I recommend practicing this ahead of time if you want to go this route.
+
+    - Connect another display to your computer - this may force Windows to re-evaluate the display layout and restore signal to a physical display.
+
+    - If you already have a second physical monitor, disconnect/reconnect it - similar to the point above, it can trigger a layout rebuild.
 
 
 ## Setup
@@ -78,16 +90,15 @@ pnputil /disable-device /deviceid root\iddsampledriver
 
 ### Multi Monitor Tool
 
-Then, you'll need to download [MultiMonitorTool](https://www.nirsoft.net/utils/multi_monitor_tool.html) - make sure to place the extracted files in the same directory as the scripts.  These scripts assume that the multi-monitor-tool in use is the 64-bit version - if you need the 32 bit version, you'll need to edit this line for the correct path:
+Then, you'll need to download [MultiMonitorTool](https://www.nirsoft.net/utils/multi_monitor_tool.html) - make sure to place the extracted files in the same directory as the scripts. These scripts assume that the multi-monitor-tool in use is the 64-bit version - if you need the 32 bit version, you'll need to edit this line for the correct path:
 
 ```batch
 $multitool = Join-Path -Path $filePath -ChildPath "multimonitortool-x64\MultiMonitorTool.exe"
 ```
 
-
 ### Windows Display Manager
 
-The powershell scripts use a module called [`WindowsDisplayManager`](https://github.com/patrick-theprogrammer/WindowsDisplayManager) - you can install this by starting a privileged powershell, and running:
+The PowerShell scripts use a module called [`WindowsDisplayManager`](https://github.com/patrick-theprogrammer/WindowsDisplayManager) - you can install this by starting a privileged PowerShell, and running:
 
 ```batch
 Install-Module -Name WindowsDisplayManager
@@ -129,25 +140,25 @@ In all the text below, replace `%PATH_TO_THIS_REPOSITORY%` with the full path to
 
 In the sunshine UI navigate to Configuration, and go to the General Tab.
 
-At the bottom, in the `Command Preparations` section, you will press the `+Add` button to add a new command, with the following setup:
+At the bottom, in the `Command Preparations` section, you will press the `+Add` button to add a new command.
 
-In the first text box the `config.do_cmd` column, you will write:
+In the first text box `config.do_cmd`, use:
 
 ```batch
-cmd /C powershell.exe -executionpolicy bypass -windowstyle hidden -file "%PATH_TO_THIS_REPOSITORY%\setup_sunvdm.ps1" > "%PATH_TO_THIS_REPOSITORY%\sunvdm.log" 2>&1
+cmd /C ""%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "%PATH_TO_THIS_REPOSITORY%\setup_sunvdm.ps1" *> "%PATH_TO_THIS_REPOSITORY%\sunvdm.log""
 ```
 
-In the second text box, the `config.undo_cmd` column, you will write:
+In the second text box `config.undo_cmd`, use:
 
 ```batch
-cmd /C powershell.exe -executionpolicy bypass -windowstyle hidden -file "%PATH_TO_THIS_REPOSITORY%\teardown_sunvdm.ps1" >> "%PATH_TO_THIS_REPOSITORY%\sunvdm.log" 2>&1
+cmd /C ""%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "%PATH_TO_THIS_REPOSITORY%\teardown_sunvdm.ps1" *>> "%PATH_TO_THIS_REPOSITORY%\sunvdm.log""
 ```
 
 > [!WARNING]
 > Make sure to replace `%PATH_TO_THIS_REPOSITORY%` with the correct path to the folder containing the scripts.
 
 > [!NOTE]
-> You will also select the checkbox for `config.elevated` under the `config.run_as` column (we need to run as elevated in order to enable and disable the display device).
+> Select the checkbox for `config.elevated` under the `config.run_as` column (we need to run as elevated in order to enable/disable the display device and apply topology changes).
 
 
 ### Option 2 - Config File
@@ -155,8 +166,9 @@ cmd /C powershell.exe -executionpolicy bypass -windowstyle hidden -file "%PATH_T
 You can set the following in your `sunshine.conf` config file:
 
 ```batch
-global_prep_cmd = [{"do":"cmd /C powershell.exe -executionpolicy bypass -windowstyle hidden -file \"%PATH_TO_THIS_REPOSITORY%\\setup_sunvdm.ps1\" > \"%PATH_TO_THIS_REPOSITORY%\\sunvdm.log\" 2>&1","undo":"cmd /C powershell.exe -executionpolicy bypass -windowstyle hidden -file \"%PATH_TO_THIS_REPOSITORY%\\teardown_sunvdm.ps1\" >> \"%PATH_TO_THIS_REPOSITORY%\\sunvdm.log\" 2>&1","elevated":"true"}]
+global_prep_cmd = [{"do":"cmd /C \"\"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File \"%PATH_TO_THIS_REPOSITORY%\\setup_sunvdm.ps1\" *> \"%PATH_TO_THIS_REPOSITORY%\\sunvdm.log\"\"","undo":"cmd /C \"\"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File \"%PATH_TO_THIS_REPOSITORY%\\teardown_sunvdm.ps1\" *>> \"%PATH_TO_THIS_REPOSITORY%\\sunvdm.log\"\"","elevated":"true"}]
+
 ```
 
 > [!NOTE]
-> If you already have something in the `global_prep_cmd` that you setup, you should be savvy enough to know where/how to add this to the list.
+> If you already have something in the `global_prep_cmd` that you setup, you should be informed enough to know where/how to add this to the list.
