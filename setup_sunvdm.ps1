@@ -2,6 +2,29 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 Import-Module WindowsDisplayManager
 
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class DisplayTopology {
+  [DllImport("user32.dll")]
+  public static extern int SetDisplayConfig(
+    uint numPathArrayElements, IntPtr pathArray,
+    uint numModeInfoArrayElements, IntPtr modeInfoArray,
+    uint flags);
+
+  public const uint SDC_APPLY            = 0x00000080;
+  public const uint SDC_ALLOW_CHANGES    = 0x00000400;
+  public const uint SDC_TOPOLOGY_EXTEND  = 0x00000004;
+}
+"@
+
+function Set-ExtendTopology {
+  $flags = [DisplayTopology]::SDC_APPLY -bor [DisplayTopology]::SDC_ALLOW_CHANGES -bor [DisplayTopology]::SDC_TOPOLOGY_EXTEND
+  $rc = [DisplayTopology]::SetDisplayConfig(0, [IntPtr]::Zero, 0, [IntPtr]::Zero, $flags)
+  if ($rc -ne 0) { throw "SetDisplayConfig(EXTEND) failed with code $rc" }
+}
+
+
 # ----------------------------
 # helpers: env-first parsing
 # ----------------------------
@@ -122,40 +145,69 @@ Write-Host "setting up virtual display ${width}x${height}@${refresh_rate} hdr ${
 Get-PnpDevice -FriendlyName $vdd_name | Enable-PnpDevice -Confirm:$false
 
 # ---------------------------
-# display convergence loop
+# display convergence loop (2 displays + EXTEND)
 # ---------------------------
+
+function To-MMTDisplayName([string]$name) {
+    if (-not $name) { return $null }
+    if ($name -match '^\\\\\.\\DISPLAY\d+$') { return $name }
+    if ($name -match '^DISPLAY\d+$') { return "\\.\$name" }
+    return $name
+}
+
+Start-Sleep -Milliseconds 800
+
 $retries = 0
 while ($true) {
     $displays = WindowsDisplayManager\GetAllPotentialDisplays
 
     $virtual = $displays | Where-Object { $_.source.description -eq $vdd_name } | Select-Object -First 1
+    if (-not $virtual) { throw "virtual display vanished" }
 
-    if (-not $virtual) { Throw "virtual display vanished" }
+    # choose ONE physical display to keep (first active non-virtual; fallback to first non-virtual)
+    $physical = ($displays | Where-Object { $_.source.description -ne $vdd_name -and $_.active } | Select-Object -First 1)
+    if (-not $physical) {
+        $physical = ($displays | Where-Object { $_.source.description -ne $vdd_name } | Select-Object -First 1)
+    }
+    if (-not $physical) { throw "no physical display found to extend with" }
 
-    # refresh active displays each iteration
+    $vName = To-MMTDisplayName $virtual.source.name
+    $pName = To-MMTDisplayName $physical.source.name
+
+    # Ensure both are enabled
+    & $multitool /enable $vName
+    & $multitool /enable $pName
+
+    # If you have MORE than these 2 active, disable the extras
     $active = $displays | Where-Object { $_.active }
+    $allowed = @($virtual.source.name, $physical.source.name)
+    $extras = $active | Where-Object { $allowed -notcontains $_.source.name }
 
-    # done if only virtual
-    if ($virtual.active -and $active.Count -le 2) { break }
-
-    # ensure virtual display is primary
-    & $multitool /enable $virtual.source.name
-    & $multitool /setprimary $virtual.source.name
-
-    # disable any extra displays
-    $extra = $active | Where-Object { $_.source.name -ne $virtual.source.name }
-    foreach ($d in $extra) {
-        # try { $d.SetResolution(1,1,$d.CurrentRefreshRate) } catch {}
-        Write-Host "disabling $d"
-        & $multitool /disable $d.source.name
+    foreach ($d in $extras) {
+        $dName = To-MMTDisplayName $d.source.name
+        Write-Host "disabling extra active display: $($d.source.name) -> $dName"
+        & $multitool /disable $dName
     }
 
-    Start-Sleep -Milliseconds 300
+    # Force EXTEND topology (this is the key part that prevents mirroring)
+    Force-ExtendTopology
+    Start-Sleep -Milliseconds 350
 
-    if ($retries++ -ge 40) { Throw "failed to converge display topology safely" }
+    # Optional but recommended for Sunshine: make virtual primary (so it captures that one consistently)
+    & $multitool /setprimary $vName
+
+    # refresh and check success: exactly 2 active, and virtual is active
+    $displays2 = WindowsDisplayManager\GetAllPotentialDisplays
+    $active2 = $displays2 | Where-Object { $_.active }
+    $virtual2 = $displays2 | Where-Object { $_.source.description -eq $vdd_name } | Select-Object -First 1
+
+    if ($virtual2 -and $virtual2.active -and $active2.Count -eq 2) { break }
+
+    if ($retries++ -ge 60) { throw "failed to converge to 2 displays in EXTEND mode" }
 }
 
-Write-Host "sunshine display diable complete"
+Write-Host "sunshine display extend setup complete"
+
 
 # ----------------------------
 # set virtual resolution LAST
