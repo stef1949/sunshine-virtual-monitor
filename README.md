@@ -1,8 +1,9 @@
-<h1 align='center'>Sunshine Virtual Monitor</h1>
+<h1 align='center'>Sunshine Virtual Monitor</h1> 
 <p align="center">
-    Sunshine Virtual Monitor provides a way to automatically enable a <b>dedicated Virtual Display Monitor</b> for your Sunshine Streaming Sessions.<br>
-    It extends your monitor while streaming and reverts them back when the stream is finished.
-</p>
+ Sunshine Virtual Monitor provides a way to automatically enable a <b>dedicated Virtual Display Monitor</b> for your Sunshine Streaming Sessions.
+ <br>
+  It keeps your normal display active and <b>adds the virtual display as an extended monitor</b> while streaming, then restores your previous layout when the stream ends. 
+  </p>
 
 
 # Table of Contents
